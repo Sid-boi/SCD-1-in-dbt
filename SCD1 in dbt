@@ -1,0 +1,112 @@
+Lets take an example table which name , original_city, cities visited  as columns.here I am going consider original city for SCD 2 as  we have to track how many times someone has changed his city.Also I am going to consider cities visited as SCD1 , that also in array format because I want to  append it as list and not replace the new city.
+
+Example record:
+				
+NAME	ORIGINAL_CITY	CITIES_VISITED	LOAD_DATE	TYPE_OF_RECORD
+				
+ram	mumbai	[ "pune", "bangalore" ]	2025-02-22	latest
+		
+
+
+
+
+
+
+{{
+    config(
+        materialized='incremental',
+        pre_hook="update {{ this }} set type_of_record = 'old' where load_date != current_date",
+        post_hook=["delete from {{ this }} where type_of_record = 'old'"],
+        
+
+        
+    )
+}}
+with 
+source as (
+    select * from {{ source('RAW_POS', 'staging_cities_visited') }}
+),
+renamed as (
+    select
+        name,
+        original_city,
+        cities_visited,load_date
+        , 'latest' as type_of_record
+        
+    from source
+)
+select *  from renamed
+
+Pre hooks in this case help us to find stale records as they mark records old based on their load date, so that fresh dimension data can be loaded in our data mart table.
+Post hook make it sure that old data gets deleted from our staging dim table.
+
+Suppose next day we get to know ram has visited delhi
+
+NAME	ORIGINAL_CITY	CITIES_VISITED	LOAD_DATE	TYPE_OF_RECORD
+ram	mumbai	[ "delhi" ]	2025-02-24	latest
+
+So in order to add delhi to existing  array  ["pune","banglore"] we cant use inbuilt incremental strategy like
+
+incremental_strategy	Corresponding macro
+append	get_incremental_append_sql
+delete+insert	get_incremental_delete_insert_sql
+merge	get_incremental_merge_sql
+insert_overwrite	get_incremental_insert_overwrite_sql
+microbatch	get_incremental_microbatch_sql
+
+From <https://docs.getdbt.com/docs/build/incremental-strategy#configuring-incremental-strategy> 
+
+We have to merge and also concat the array so we have to write a custom strategy .
+
+
+{% macro get_incremental_array_append_sql(arg_dict) %}
+  {% do log('Value is: ' ~ arg_dict, info=True) %}
+    {{ arg_dict }}
+  {% set my_custom_value = config.get('array_column') %}
+  {% do log('Value is: ' ~ my_custom_value, info=True) %}
+    {{ my_custom_value }}
+
+  {%- set array_column = config.get('array_column') -%}
+  {% do return(some_custom_macro_with_sql(arg_dict["target_relation"], arg_dict["temp_relation"], arg_dict["unique_key"], arg_dict["dest_columns"],array_column)) %}
+{% endmacro %}
+
+{% macro some_custom_macro_with_sql(target_relation, temp_relation, unique_key, dest_columns,array_column) %}
+    {%- set dest_cols_csv = get_quoted_csv(dest_columns | map(attribute="name")) -%}
+    
+   merge into {{target_relation}} target
+   using {{temp_relation}} source
+   on source.{{unique_key}} = target.{{unique_key}}
+   when matched
+   then 
+   update set target.{{array_column}}=array_distinct(array_cat(target.{{array_column}},source.{{array_column}}))
+   when not matched then
+   insert ({{dest_cols_csv}}) values ({{dest_cols_csv}})
+{% endmacro %}
+
+We will use array distinct ,array concat and append the new cities like delhi here to existing cities visited and use merge logic here  
+Here target refer to the main dimension table and temp relation refers to temporary table that is made snowflake makes to only have the source records rather than using source table to merge
+
+
+Lets write the logic for final cities visted dimension table
+
+
+{{
+    config(
+        materialized='incremental',
+        unique_key='name',
+        incremental_strategy='array_append',
+        array_column='cities_visited'
+    )
+}}
+select name,original_city,cities_visited from {{ ref('cities_visited_staging') }}
+{% if is_incremental() %}
+where type_of_record = 'latest'
+{% endif %}
+
+Here we have  is incremental macro so that we only take latest data from our staging table. This can be an alternative to  not deleting the rows in post hook.
+Also I have passed required attributes along with custom incremental strategy.
+
+Final table will have  this record for ram.
+NAME	ORIGINAL_CITY	CITIES_VISITED
+ram	mumbai	[ "pune", "banglore", "delhi" ]
+
