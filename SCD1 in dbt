@@ -1,4 +1,6 @@
-Lets take an example table which name , original_city, cities visited  as columns.here I am going consider original city for SCD 2 as  we have to track how many times someone has changed his city.Also I am going to consider cities visited as SCD1 , that also in array format because I want to  append it as list and not replace the new city.
+Lets take an example table which name , original_city, cities visited  as columns.
+here I am going consider original city for SCD 2 as  we have to track how many times someone has changed his city.
+Also I am going to consider cities visited as SCD1 , that also in array format because I want to  append it as list and not replace the new city.
 
 Example record:
 				
@@ -6,12 +8,6 @@ NAME	ORIGINAL_CITY	CITIES_VISITED	LOAD_DATE	TYPE_OF_RECORD
 				
 ram	mumbai	[ "pune", "bangalore" ]	2025-02-22	latest
 		
-
-
-
-
-
-
 {{
     config(
         materialized='incremental',
@@ -48,13 +44,11 @@ ram	mumbai	[ "delhi" ]	2025-02-24	latest
 So in order to add delhi to existing  array  ["pune","banglore"] we cant use inbuilt incremental strategy like
 
 incremental_strategy	Corresponding macro
-append	get_incremental_append_sql
+append	             get_incremental_append_sql
 delete+insert	get_incremental_delete_insert_sql
 merge	get_incremental_merge_sql
 insert_overwrite	get_incremental_insert_overwrite_sql
 microbatch	get_incremental_microbatch_sql
-
-From <https://docs.getdbt.com/docs/build/incremental-strategy#configuring-incremental-strategy> 
 
 We have to merge and also concat the array so we have to write a custom strategy .
 
@@ -84,8 +78,8 @@ We have to merge and also concat the array so we have to write a custom strategy
 {% endmacro %}
 
 We will use array distinct ,array concat and append the new cities like delhi here to existing cities visited and use merge logic here  
-Here target refer to the main dimension table and temp relation refers to temporary table that is made snowflake makes to only have the source records rather than using source table to merge
-
+Here target refer to the main dimension table and temp relation refers to temporary table that is made snowflake makes 
+to only have the source records rather than using source table to merge
 
 Lets write the logic for final cities visted dimension table
 
